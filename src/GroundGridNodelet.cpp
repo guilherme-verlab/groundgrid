@@ -97,7 +97,7 @@ class GroundGridNodelet : public nodelet::Nodelet {
         config_server_->setCallback(f);
 
         // ego-position
-        pos_sub_ = nh.subscribe( "/localization/odometry/filtered_map", 1, &groundgrid::GroundGridNodelet::odom_callback, this);
+        pos_sub_ = nh.subscribe( "/Odometry", 1, &groundgrid::GroundGridNodelet::odom_callback, this);
 
         // input point cloud
         points_sub_ = nh.subscribe("/sensors/velodyne_points", 1, &groundgrid::GroundGridNodelet::points_callback, this);
@@ -128,7 +128,7 @@ class GroundGridNodelet : public nodelet::Nodelet {
             //mTfBuffer.canTransform("base_link", "map", cloud_msg->header.stamp, ros::Duration(0.0));
             mapToBaseTransform = mTfBuffer.lookupTransform("map", "base_link", cloud_msg->header.stamp, ros::Duration(0.0));
             //mTfBuffer.canTransform(cloud_msg->header.frame_id, "map", cloud_msg->header.stamp, ros::Duration(0.0));
-            cloudOriginTransform = mTfBuffer.lookupTransform("map", "velodyne", cloud_msg->header.stamp, ros::Duration(0.0));
+            cloudOriginTransform = mTfBuffer.lookupTransform("map", "ego_vehicle/lidar", cloud_msg->header.stamp, ros::Duration(0.0));
         }
         catch (tf2::TransformException &ex) {
             ROS_WARN("Received point cloud but transforms are not available: %s",ex.what());
@@ -138,7 +138,7 @@ class GroundGridNodelet : public nodelet::Nodelet {
 
         geometry_msgs::PointStamped origin;
         origin.header = cloud_msg->header;
-        origin.header.frame_id = "velodyne";
+        origin.header.frame_id = "ego_vehicle/lidar";
         origin.point.x = 0.0f;
         origin.point.y = 0.0f;
         origin.point.z = 0.0f;
@@ -146,42 +146,42 @@ class GroundGridNodelet : public nodelet::Nodelet {
         tf2::doTransform(origin, origin, cloudOriginTransform);
 
         // Transform cloud into map coordinate system
-        if(cloud_msg->header.frame_id != "map"){
-            // Transform to map
-            geometry_msgs::TransformStamped transformStamped;
-            pcl::PointCloud<velodyne_pointcloud::PointXYZIR>::Ptr transformed_cloud(new pcl::PointCloud<velodyne_pointcloud::PointXYZIR>);
-            transformed_cloud->header = cloud->header;
-            transformed_cloud->header.frame_id = "map";
-            transformed_cloud->points.reserve(cloud->points.size());
+        // if(cloud_msg->header.frame_id != "map"){
+        //     // Transform to map
+        //     geometry_msgs::TransformStamped transformStamped;
+        //     pcl::PointCloud<velodyne_pointcloud::PointXYZIR>::Ptr transformed_cloud(new pcl::PointCloud<velodyne_pointcloud::PointXYZIR>);
+        //     transformed_cloud->header = cloud->header;
+        //     transformed_cloud->header.frame_id = "map";
+        //     transformed_cloud->points.reserve(cloud->points.size());
 
-            try{
-                mTfBuffer.canTransform("map", cloud_msg->header.frame_id, cloud_msg->header.stamp, ros::Duration(0.0));
-                transformStamped = mTfBuffer.lookupTransform("map", cloud_msg->header.frame_id, cloud_msg->header.stamp, ros::Duration(0.0));
-            }
-            catch (tf2::TransformException &ex) {
-                ROS_WARN("Failed to get map transform for point cloud transformation: %s",ex.what());
-                return;
-            }
+        //     try{
+        //         mTfBuffer.canTransform("map", cloud_msg->header.frame_id, cloud_msg->header.stamp, ros::Duration(0.0));
+        //         transformStamped = mTfBuffer.lookupTransform("map", cloud_msg->header.frame_id, cloud_msg->header.stamp, ros::Duration(0.0));
+        //     }
+        //     catch (tf2::TransformException &ex) {
+        //         ROS_WARN("Failed to get map transform for point cloud transformation: %s",ex.what());
+        //         return;
+        //     }
 
-            geometry_msgs::PointStamped psIn;
-            psIn.header = cloud_msg->header;
-            psIn.header.frame_id = "map";
+        //     geometry_msgs::PointStamped psIn;
+        //     psIn.header = cloud_msg->header;
+        //     psIn.header.frame_id = "map";
 
-            for(const auto& point : cloud->points){
-                psIn.point.x = point.x;
-                psIn.point.y = point.y;
-                psIn.point.z = point.z;
+        //     for(const auto& point : cloud->points){
+        //         psIn.point.x = point.x;
+        //         psIn.point.y = point.y;
+        //         psIn.point.z = point.z;
 
-                tf2::doTransform(psIn, psIn, transformStamped);
+        //         tf2::doTransform(psIn, psIn, transformStamped);
 
-                PCLPoint& point_transformed = transformed_cloud->points.emplace_back(point);
-                point_transformed.x = psIn.point.x;
-                point_transformed.y = psIn.point.y;
-                point_transformed.z = psIn.point.z;
-            }
+        //         PCLPoint& point_transformed = transformed_cloud->points.emplace_back(point);
+        //         point_transformed.x = psIn.point.x;
+        //         point_transformed.y = psIn.point.y;
+        //         point_transformed.z = psIn.point.z;
+        //     }
 
-            cloud = transformed_cloud;
-        }
+        //     cloud = transformed_cloud;
+        // }
 
         auto end = std::chrono::steady_clock::now();
         ROS_DEBUG_STREAM("cloud transformation took " << std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count() << "ms");
@@ -194,9 +194,20 @@ class GroundGridNodelet : public nodelet::Nodelet {
         origin_pclPoint.y = origin.point.y;
         origin_pclPoint.z = origin.point.z;
         pcl::toROSMsg(*(ground_segmentation_.filter_cloud(cloud, origin_pclPoint, mapToBaseTransform, *map_ptr_)), cloud_msg_out);
+        
+        pcl::PointCloud<velodyne_pointcloud::PointXYZIR>::Ptr temp_cloud(new pcl::PointCloud<velodyne_pointcloud::PointXYZIR>);
+        pcl::fromROSMsg(cloud_msg_out, *temp_cloud);
+        pcl::PointCloud<velodyne_pointcloud::PointXYZIR>::Ptr filtered_cloud(new pcl::PointCloud<velodyne_pointcloud::PointXYZIR>);
+        for (const auto& point : temp_cloud->points) {
+            if (point.intensity != 49) {  
+                filtered_cloud->push_back(point);
+            }
+        }
+        pcl::toROSMsg(*filtered_cloud, cloud_msg_out);
 
         cloud_msg_out.header = cloud_msg->header;
         cloud_msg_out.header.frame_id = "map";
+
         filtered_cloud_pub_.publish(cloud_msg_out);
         end = std::chrono::steady_clock::now();
         std::chrono::duration<double> elapsed_seconds = end-start2;

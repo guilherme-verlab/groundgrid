@@ -1,7 +1,10 @@
 <?xml version="1.0" ?>
 <launch>
+    <param name="/use_sim_time" value="true"/>
+
     <arg name="point_cloud_topic" default="/sensors/velodyne_points" doc="Point cloud topic to subscribe to" />
-    <arg name="use_nodelets"    default="$(optenv USE_NODELETS false)" />
+    <arg name="odom_topic" default="/Odometry"/>
+    <arg name="use_nodelets"    default="$(optenv USE_NODELETS true)" />
     <arg name="nodelet_manager" default="$(optenv NODELET_MANAGER core_nodelet_manager)" />
 
     <![CDATA[
@@ -13,6 +16,7 @@
     ]]>
 
     <remap from="/sensors/velodyne_points" to="$(arg point_cloud_topic)" />
+    <remap from="/Odometry" to="$(arg odom_topic)" />
 
     <!-- start standalone node -->
     <node unless="$(arg use_nodelets)"
@@ -20,6 +24,9 @@
           name="groundgrid"
           type="groundgrid_node"
           >
+          launch-prefix="gnome-terminal -x gdb --args"
+          <remap from="/sensors/velodyne_points" to="$(arg point_cloud_topic)" />
+          <remap from="/Odometry" to="$(arg odom_topic)" />
     </node>
 
     <!-- start nodelet (nodelet manager needed, see below) -->
